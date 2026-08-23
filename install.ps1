@@ -1,42 +1,73 @@
-# MenuSlim one-line installer
-# Installs the menuslim skill into the user's TRAE skill directory.
+# MenuSlim installer - works for TRAE / Codex / Claude Code / Cursor / Windsurf
+# Usage:
+#   irm https://raw.githubusercontent.com/TJCSGAO/menuslim/main/install.ps1 | iex
+#   (auto-installs into every detected tool's skill directory)
+# Or target a specific tool:
+#   ./install.ps1 -Target codex
+param(
+  [ValidateSet('trae','codex','claude','cursor','windsurf','all')]
+  [string]$Target = 'all'
+)
 $ErrorActionPreference = 'Stop'
 
-$skillDirs = @(
-  "$env:USERPROFILE\.trae\skills\menuslim",
-  "$env:USERPROFILE\.trae-cn\skills\menuslim"
-)
+# tool -> candidate skill directories (first existing parent wins)
+$map = [ordered]@{
+  trae     = @("$env:USERPROFILE\.trae\skills\menuslim", "$env:USERPROFILE\.trae-cn\skills\menuslim")
+  codex    = @("$env:USERPROFILE\.codex\skills\menuslim")
+  claude   = @("$env:USERPROFILE\.claude\skills\menuslim")
+  cursor   = @("$env:USERPROFILE\.cursor\skills\menuslim")
+  windsurf = @("$env:USERPROFILE\.windsurf\skills\menuslim")
+}
 
-$repo = 'https://raw.githubusercontent.com/TJCSGAO/menuslim/main/'
 $files = @('SKILL.md', 'disable-context-menu.bat', 'restore-context-menu.bat')
 
-$installed = $null
-foreach ($dir in $skillDirs) {
-  $parent = Split-Path $dir -Parent
-  if (Test-Path $parent) { $installed = $dir; break }
-}
-if (-not $installed) { $installed = $skillDirs[0] }
-
-New-Item -ItemType Directory -Force $installed | Out-Null
-Write-Host "Installing menuslim to: $installed"
-
+Write-Host 'Downloading menuslim files ...'
+$src = @()
+$needZip = $false
 foreach ($f in $files) {
-  $url = $repo + $f
-  $dest = Join-Path $installed $f
-  Write-Host "  Downloading $f ..."
+  $dest = Join-Path $env:TEMP "menuslim-$f"
   try {
-    Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+    Invoke-WebRequest -Uri "https://raw.githubusercontent.com/TJCSGAO/menuslim/main/$f" -OutFile $dest -UseBasicParsing
   } catch {
-    # Fallback to codeload zip in case raw is blocked
-    Write-Warning "Direct download failed, falling back to GitHub codeload archive ..."
-    $zip = "$env:TEMP\menuslim.zip"
-    Invoke-WebRequest -Uri 'https://codeload.github.com/TJCSGAO/menuslim/zip/refs/heads/main' -OutFile $zip -UseBasicParsing
-    Expand-Archive -Path $zip -DestinationPath "$env:TEMP\menuslim-extract" -Force
-    Copy-Item "$env:TEMP\menuslim-extract\menuslim-main\$f" $dest -Force
-    break
+    $needZip = $true
+  }
+  $src += $dest
+}
+if ($needZip) {
+  Write-Host '  raw.githubusercontent.com unreachable, falling back to codeload archive ...'
+  $zip = "$env:TEMP\menuslim.zip"
+  Invoke-WebRequest -Uri 'https://codeload.github.com/TJCSGAO/menuslim/zip/refs/heads/main' -OutFile $zip -UseBasicParsing
+  Expand-Archive -Path $zip -DestinationPath "$env:TEMP\menuslim-extract" -Force
+  for ($i = 0; $i -lt $files.Count; $i++) {
+    if (-not (Test-Path $src[$i]) -or (Get-Item $src[$i]).Length -eq 0) {
+      Copy-Item "$env:TEMP\menuslim-extract\menuslim-main\$($files[$i])" $src[$i] -Force
+    }
   }
 }
 
-Write-Host ''
-Write-Host 'Done! menuslim installed.' -ForegroundColor Green
-Write-Host "Next: open TRAE and say \"\u5e2e\u6211\u6e05\u7406\u53f3\u952e\u83dc\u5355\" to trigger the skill."
+$targets = if ($Target -eq 'all') { @($map.Keys) } else { @($Target) }
+$installedCount = 0
+
+foreach ($t in $targets) {
+  foreach ($dir in $map[$t]) {
+    # auto mode: only install when the tool's config dir exists; explicit mode: always
+    $toolRoot = Split-Path (Split-Path $dir -Parent) -Parent
+    if ($Target -ne 'all' -or (Test-Path $toolRoot)) {
+      New-Item -ItemType Directory -Force $dir | Out-Null
+      for ($i = 0; $i -lt $files.Count; $i++) {
+        Copy-Item $src[$i] (Join-Path $dir $files[$i]) -Force
+      }
+      Write-Host "  [ok] $t -> $dir" -ForegroundColor Green
+      $installedCount++
+      break
+    }
+  }
+}
+
+if ($installedCount -eq 0) {
+  Write-Warning 'No tool skill directory detected. Run with -Target <trae|codex|claude|cursor|windsurf> to specify one.'
+} else {
+  Write-Host ""
+  Write-Host "Done! menuslim installed to $installedCount location(s)."
+  Write-Host 'Trigger it by asking your agent: 清理右键菜单 / 恢复右键扩展'
+}
