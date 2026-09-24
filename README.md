@@ -1,54 +1,83 @@
-# menuslim
+# menuslim — MenuSlim（右键瘦身）
 
-MenuSlim（右键瘦身）— Windows 右键菜单第三方 Shell 扩展的管理工具（Agent Skill）。
+Slim down and repair the Windows right-click context menu. An agent Skill (works with any agent that follows the `SKILL.md` convention): it restores the one-step full menu on Windows 11, scans every menu entry, labels third-party vendors, backs up the registry, and lets you selectively hide/restore entries — without uninstalling anything.
 
-扫描资源管理器右键菜单的第三方扩展（WPS、百度网盘、搜狗、QQ/TIM、各类网盘等），按厂商标注列表，让用户选择后通过注册表 Shell Extension Blocked 列表禁用；支持一键恢复。
+## What it does
 
-适用于任何支持 SKILL.md 约定的 Agent 工具（TRAE、Codex、Claude Code、Cursor、Windsurf 等）。
+1. **Remove the Windows 11 "Show more options" extra click** — restore the Windows 10-style full menu that appears in one click.
+2. **Full scan** — COM context-menu handlers across every scope, including 32-bit (`WOW6432Node`), per-extension (`SystemFileAssociations`) and per-ProgID registrations, plus static (non-COM) shell verbs.
+3. **Vendor labeling & selective hiding** — third-party entries (cloud drives, input methods, chat apps, "open in editor" verbs, etc.) are labeled by vendor; you choose what to hide. System entries are never touched.
+4. **Backup first, fully reversible** — registry keys are exported before any change; one script restores everything.
 
-## 安装
+All changes happen at the **current-user** level (`HKCU`), so administrator rights are normally not required, and no application is uninstalled.
 
-### 方式一：一行命令（自动探测已安装的工具）
+## Install
+
+### One-line (auto-detects supported tools)
 
 ```powershell
 irm https://raw.githubusercontent.com/TJCSGAO/menuslim/main/install.ps1 | iex
 ```
 
-或指定目标工具：
+Target a specific tool:
 
 ```powershell
 irm https://raw.githubusercontent.com/TJCSGAO/menuslim/main/install.ps1 -OutFile install.ps1
 ./install.ps1 -Target codex   # trae | codex | claude | cursor | windsurf
 ```
 
-### 方式二：按各工具常规 Skill 安装方法
+### Manual
 
-将本仓库的 `SKILL.md`、`disable-context-menu.bat`、`restore-context-menu.bat` 三个文件放入对应工具的 skill 目录下的 `menuslim/` 子目录，即标准的「下载仓库 → 拷入 skill 目录」流程，与安装其他第三方 skill 完全一致：
+Copy the repository files into a `menuslim/` folder under your tool's skill directory:
 
-| 工具 | Skill 目录 |
+| Tool | Skill directory |
 |---|---|
-| TRAE | `~/.trae/skills/menuslim/`（国内版为 `~/.trae-cn/skills/menuslim/`） |
+| TRAE | `~/.trae/skills/menuslim/` (China edition: `~/.trae-cn/skills/menuslim/`) |
 | Codex | `~/.codex/skills/menuslim/` |
 | Claude Code | `~/.claude/skills/menuslim/` |
 | Cursor | `~/.cursor/skills/menuslim/` |
 | Windsurf | `~/.windsurf/skills/menuslim/` |
 
-## 使用
+## Usage
 
-- 对话中触发：`清理右键菜单` / `恢复右键扩展`。
-- Agent 会扫描注册表并列出厂商表，确认后生成脚本。
+- Ask your agent, e.g. `清理右键菜单` / `恢复右键扩展` / `恢复完整右键菜单`.
+- No agent? Double-click `enable-classic-menu.bat` to get the one-step full menu, or `restore-new-menu.bat` to undo it.
 
-## 文件
+Typical scripted flow:
 
-- `SKILL.md` — Skill 定义（扫描/分类/禁用/恢复完整流程与踩坑记录）
-- `disable-context-menu.bat` — 禁用所选扩展（管理员运行）
-- `restore-context-menu.bat` — 恢复（管理员运行）
-- `install.ps1` — 安装器（自动探测或 `-Target` 指定工具）
+```powershell
+# 1. scan and classify
+powershell -ExecutionPolicy Bypass -File .\scan-context-menu.ps1
+powershell -ExecutionPolicy Bypass -File .\analyze-scan.ps1
+# 2. apply (user level) — pass the CLSIDs / verb paths you chose from the scan
+.\block-handlers.ps1 -ClassicMenu -Clsids @('{...}') -HideStaticVerbs @('Software\Classes\Directory\shell\ExampleVerb') -RestartExplorer
+# 3. undo
+.\unblock-handlers.ps1 -RemoveClassicMenu -Clsids @('{...}') -HideStaticVerbs @('Software\Classes\Directory\shell\ExampleVerb') -RestartExplorer
+```
 
-## 原理
+## How it works
 
-将扩展的 CLSID 写入 `HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Blocked`，不动源文件，随时可逆。
+- **Classic menu**: an empty-data default value at `HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32` disables the truncated Windows 11 menu. (It must be written with `reg add ... /ve`; see `SKILL.md`.)
+- **COM handlers**: the CLSID is listed under `...\CurrentVersion\Shell Extensions\Blocked`, so Explorer skips loading it.
+- **Static verbs**: a `ProgrammaticAccessOnly` value hides the item from the normal menu while keeping it reachable via the extended keyboard menu.
 
-## 卸载
+## Files
 
-删除 skill 目录下的 `menuslim/` 目录即可（如已禁用扩展，请先运行 restore 脚本恢复）。
+| File | Purpose |
+|---|---|
+| `SKILL.md` | Full workflow, registry references, vendor mapping, pitfalls, privacy rules |
+| `scan-context-menu.ps1` | Full scan (COM + static, 64/32-bit), writes `scan-result.json` |
+| `analyze-scan.ps1` | Splits third-party entries from system entries |
+| `block-handlers.ps1` | User-level: enable classic menu, block CLSIDs, hide static verbs |
+| `unblock-handlers.ps1` | Reverse of `block-handlers.ps1` |
+| `enable-classic-menu.bat` | One-click full menu (no admin needed) |
+| `restore-new-menu.bat` | Restore the default Windows 11 menu |
+| `install.ps1` | Installer for common agent tools |
+
+## Privacy
+
+This repository publishes only the generic workflow and scripts. It contains no personal paths, usernames, machine names, scan results, or lists of software installed on any individual machine. See the "Privacy rules" section in `SKILL.md` before redistributing.
+
+## Disclaimer
+
+Use at your own discretion. The scripts only read/write documented registry locations and are designed to be reversible; always review them and keep the backup before applying changes.
