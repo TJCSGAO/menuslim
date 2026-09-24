@@ -19,7 +19,15 @@ $map = [ordered]@{
   windsurf = @("$env:USERPROFILE\.windsurf\skills\menuslim")
 }
 
-$files = @('SKILL.md', 'disable-context-menu.bat', 'restore-context-menu.bat')
+$files = @(
+  'SKILL.md',
+  'scan-context-menu.ps1',
+  'analyze-scan.ps1',
+  'block-handlers.ps1',
+  'unblock-handlers.ps1',
+  'enable-classic-menu.bat',
+  'restore-new-menu.bat'
+)
 
 Write-Host 'Downloading menuslim files ...'
 $src = @()
